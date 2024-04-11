@@ -21,13 +21,11 @@
 #define STATUS_LED 0
 #define BOOT_BUTTON_PIN 0
 
-#define THROTTLE 34
-#define FORWARD 16
-#define BACKWARD 17
-#define LEFT 18
-#define RIGHT 19
+#define JOYX 34
+#define JOYY 35
+
 #define HORN 4
-#define GPS_POWER 35
+#define GPS_POWER 18
 
 CRGB leds[NUM_LEDS];
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
@@ -46,6 +44,8 @@ int signalQuality[] = {99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
                       };
 
 const int portalOpenTime = 300000; //server open for 5 mins
+int navX, navX2;
+int navY, navY2;
 bool onDemand;
 String firebaseStatus = "";
 String ssid = "";
@@ -58,12 +58,8 @@ float latti = 00.00000;
 float longi = 00.00000;
 float carSpeed = 00.00;
 uint8_t wifiRSSI = 0;
-uint8_t throttleValue;
 uint8_t potValue;
-uint8_t forwardValue;
-uint8_t backwardValue;
-uint8_t leftValue;
-uint8_t rightValue;
+
 uint8_t hornValue;
 uint8_t headlightValue;
 uint8_t satNo;
@@ -86,11 +82,8 @@ void setup() {
 
 
   pinMode(BOOT_BUTTON_PIN, INPUT);
-  pinMode(THROTTLE, INPUT);
-  pinMode(FORWARD, INPUT);
-  pinMode(BACKWARD, INPUT);
-  pinMode(LEFT, INPUT);
-  pinMode(RIGHT, INPUT);
+  pinMode(JOYX, INPUT);
+  pinMode(JOYY, INPUT);
   pinMode(HORN, INPUT);
   pinMode(GPS_POWER, INPUT);
   delay(500);
@@ -414,21 +407,22 @@ void decodeData(String data) {
     return;
   }
 
-  backwardValue = doc["BACKWARD"];
+
   batteryLevel = doc["BATTERY"];
   bhc = doc["BHC"];
   blc = doc["BLC"];
-  forwardValue = doc["FORWARD"];
+
   gpsValue = doc["GPS"];
   headlightValue = doc["HL"];
   hornValue = doc["HORN"];
   latti = doc["LAT"];
-  leftValue = doc["LEFT"];
+
   longi = doc["LNG"];
-  rightValue = doc["RIGHT"];
+  navX2 = doc["NAVX"];
+  navY2 = doc["NAVY"];
+
   satNo = doc["SAT"];
   carSpeed = doc["SPEED"];
-  throttleValue = doc["THROTTLE"];
 }
 ////////////////////////////////////////////////////////////////
 boolean isFirebaseConnected() {
@@ -498,99 +492,30 @@ void gpsPowerControll() {
   }
 }
 /////////////////////////////////////////////////////////////
-void navigation() {
+void navUpload() {
 
-  if ((digitalRead(FORWARD) == HIGH) ^
-      (digitalRead(BACKWARD) == HIGH) ^
-      (digitalRead(LEFT) == HIGH) ^
-      (digitalRead(RIGHT) == HIGH)) {
+  //  navX = analogRead(JOYX);
+  //  navY = analogRead(JOYY);
 
-    if (digitalRead(FORWARD) == HIGH) {
-      Firebase.setInt(firebaseData, "/ESP-CAR/FORWARD", 1);
-    } else if (digitalRead(BACKWARD) == HIGH) {
-      Firebase.setInt(firebaseData, "/ESP-CAR/BACKWARD", 1);
-    } else if (digitalRead(LEFT) == HIGH) {
-      Firebase.setInt(firebaseData, "/ESP-CAR/LEFT", 1);
-    } else if (digitalRead(RIGHT) == HIGH) {
-      Firebase.setInt(firebaseData, "/ESP-CAR/RIGHT", 1);
-    }
-  } else {
-    Firebase.setInt(firebaseData, "/ESP-CAR/BACKWARD", 0);
-    Firebase.setInt(firebaseData, "/ESP-CAR/FORWARD", 0);
-    Firebase.setInt(firebaseData, "/ESP-CAR/LEFT", 0);
-    Firebase.setInt(firebaseData, "/ESP-CAR/RIGHT", 0);
+  if (abs(navX2 - navX) > 10 || abs(navY2 - navY) > 10) {
+    Firebase.setInt(firebaseData, "/ESP-CAR/NAVX", navX);
+    Firebase.setInt(firebaseData, "/ESP-CAR/NAVY", navY);
   }
 
-  if (digitalRead(HORN) == HIGH) {
-    Firebase.setInt(firebaseData, "/ESP-CAR/HORN", 1);
-  } else {
+  if (digitalRead(HORN) == LOW) {
     Firebase.setInt(firebaseData, "/ESP-CAR/HORN", 0);
-  }
-
-  //  uint8_t f = digitalRead(FORWARD);
-  //  uint8_t b = digitalRead(BACKWARD);
-  //  uint8_t l = digitalRead(LEFT);
-  //  uint8_t r = digitalRead(RIGHT);
-  //  uint8_t h = digitalRead(HORN);
-  //
-  //  if (f == HIGH && b == LOW && l == LOW && r == LOW) {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/FORWARD", 1);
-  //  } else {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/FORWARD", 0);
-  //  }
-  //
-  //  if (b == HIGH && f == LOW && l == LOW && r == LOW) {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/BACKWARD", 1);
-  //  } else {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/BACKWARD", 0);
-  //  }
-  //
-  //  if (l == HIGH && f == LOW && b == LOW && r == LOW) {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/LEFT", 1);
-  //  } else {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/LEFT", 0);
-  //  }
-  //
-  //  if (r == HIGH && f == LOW && b == LOW && l == LOW) {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/RIGHT", 1);
-  //  } else {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/RIGHT", 0);
-  //  }
-  //
-  //  if (digitalRead(HORN) == HIGH) {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/HORN", 1);
-  //  }
-  //  else {
-  //    Firebase.setInt(firebaseData, "/ESP-CAR/HORN", 0);
-  //  }
-}
-///////////////////////////////////////////////////////////////
-void speedControll() {
-  //  if (xSemaphoreTake(variableMutex, portMAX_DELAY)) {
-  //    sharedVarForSpeed = map(analogRead(THROTTLE), 0, 4095, 0, 255);
-  //    xSemaphoreGive(variableMutex);
-  //  }
-
-  potValue = map(analogRead(THROTTLE), 0, 4095, 0, 255);
-  if (abs(throttleValue - potValue) > 2) {
-    Firebase.setInt(firebaseData, "/ESP-CAR/THROTTLE", potValue);
-  }
-}
-/////////////////////////////////////////////////////////////
-void speedUpload() {
-  if (xSemaphoreTake(variableMutex, portMAX_DELAY)) {
-    throttleValue = sharedVarForSpeed;
-    xSemaphoreGive(variableMutex);
-    Firebase.setInt(firebaseData, "/ESP-CAR/THROTTLE", throttleValue);
+  } else {
+    Firebase.setInt(firebaseData, "/ESP-CAR/HORN", 1);
   }
 }
 ///////////////////////////////////////////////////////////////
 void drawLayout() {
   u8g2.drawFrame(0, 0, 80, 64);
-  u8g2.drawFrame(81, 0, 47, 64);
-  u8g2.drawLine(82, 24, 126, 24);
-  u8g2.drawLine(93, 44, 115, 44);
-  u8g2.drawLine(104, 38, 104, 50);
+  u8g2.drawFrame(80, 0, 48, 64);
+  u8g2.drawLine(81, 11, 126, 11);
+  //  u8g2.drawEllipse(104, 37, 23, 25);
+  u8g2.drawLine(103, 12, 103, 62);
+  u8g2.drawLine(81, 37, 126, 37);
   u8g2.sendBuffer();
 }
 ///////////////////////////////////////////////////////////////
@@ -633,16 +558,6 @@ void batteryPercent(uint8_t bpx, uint8_t bpy) {
   u8g2.sendBuffer();
 }
 ///////////////////////////////////////////////////////////////
-void displayThrottle(uint8_t tvx, uint8_t tvy) {
-  uint8_t pot = map(analogRead(THROTTLE), 0, 4095, 0, 100);
-  String potStr = String(pot);
-  String potPercent = "TH=" + potStr + "%";
-  clearLCD(tvx, tvy - 9, 42, 9);
-  u8g2.setFont(u8g2_font_t0_11_tr);
-  u8g2.drawStr(tvx, tvy, potPercent.c_str());
-  u8g2.sendBuffer();
-}
-///////////////////////////////////////////////////////////////
 void displayHorn(uint8_t dhx, uint8_t dhy) {
   if (hornValue == 1) {
     clearLCD(dhx, dhy - 9, 12, 9);
@@ -665,42 +580,42 @@ void displayHeadlight(uint8_t dhdx, uint8_t dhdy) {
   }
 }
 ///////////////////////////////////////////////////////////////
-void displayNav(uint8_t dnx, uint8_t dny) {
-  if (forwardValue == 1) {
-    clearLCD(dnx, dny - 9, 6, 9);
-    u8g2.setFont(u8g2_font_t0_11_tr);
-    u8g2.drawStr(dnx, dny, "F");
-    u8g2.sendBuffer();
-  } else {
-    clearLCD(dnx, dny - 9, 6, 9);
-  }
+void displayNav() {
+  navX = analogRead(JOYX);
+  navY = analogRead(JOYY);
 
-  if (leftValue == 1) {
-    clearLCD(dnx - 17, dny + 13 - 9, 6, 9);
-    u8g2.setFont(u8g2_font_t0_11_tr);
-    u8g2.drawStr(dnx - 17, dny + 13, "L");
-    u8g2.sendBuffer();
-  } else {
-    clearLCD(dnx - 17, dny + 13 - 9, 6, 9);
-  }
+  Serial.print(" X: ");
+  Serial.print(navX);
+  Serial.print(" Y: ");
+  Serial.println(navY);
 
-  if (rightValue == 1) {
-    clearLCD(dnx + 16, dny + 13 - 9, 6, 9);
-    u8g2.setFont(u8g2_font_t0_11_tr);
-    u8g2.drawStr(dnx + 16, dny + 13, "R");
-    u8g2.sendBuffer();
-  } else {
-    clearLCD(dnx + 16, dny + 13 - 9, 6, 9);
-  }
+  int x = 1412, y = 1385;
+  int xR = map(navX, x + 1, 4095, 100, 121);
+  int xL = map(navX, x - 2, 0, 100, 80);
+  int yT = map(navY, y + 1, 0, 41, 18);
+  int yB = map(navY, y - 2, 4095, 41, 64);
 
-  if (backwardValue == 1) {
-    clearLCD(dnx, dny + 25 - 9, 6, 9);
-    u8g2.setFont(u8g2_font_t0_11_tr);
-    u8g2.drawStr(dnx, dny + 25, "B");
-    u8g2.sendBuffer();
-  } else {
-    clearLCD(dnx, dny + 25 - 9, 6, 9);
+
+  clearLCD(104, 12, 23, 25);
+  clearLCD(81, 12, 22, 25);
+  clearLCD(81, 38, 22, 25);
+  clearLCD(104, 38, 23, 25);
+
+  u8g2.setFont(u8g2_font_t0_11_tr);
+
+  if (navX > x && navY < y) { //1st co.
+    u8g2.drawStr(xR, yT, "+");
   }
+  if (navX < x && navY < y) { //2nd co.
+    u8g2.drawStr(xL, yT, "+");
+  }
+  if (navX < x && navY > y) { //3rd co.
+    u8g2.drawStr(xL, yB, "+");
+  }
+  if (navX > x && navY > y) { //4th co.
+    u8g2.drawStr(xR, yB, "+");
+  }
+  u8g2.sendBuffer();
 }
 ///////////////////////////////////////////////////////////////
 void displayGPSStatus(uint8_t dgx, uint8_t dgy) {
@@ -738,20 +653,6 @@ void displayLatLng(uint8_t dllx, uint8_t dlly) {
   clearLCD(dllx, dlly + 10 - 9, 77, 9);
   u8g2.drawStr(dllx, dlly + 10, concatenatedDMSLng.c_str());
   u8g2.sendBuffer();
-
-
-  //  String latStr = String(latti, 4);
-  //  String lngStr = String(longi, 4);
-  //  String latStr2 = "LAT=" + latStr;
-  //  String lngStr2 = "LNG=" + lngStr;
-  //
-  //  clearLCD(dllx, dlly - 9, 77, 9);
-  //  u8g2.setFont(u8g2_font_t0_11_tr);
-  //  u8g2.drawStr(dllx, dlly, latStr2.c_str());
-  //
-  //  clearLCD(dllx, dlly + 10 - 9, 77, 9);
-  //  u8g2.drawStr(dllx, dlly + 10, lngStr2.c_str());
-  //  u8g2.sendBuffer();
 }
 //////////////////////////////////////////////////////////////
 void convertToDMS(double value, char positiveDirection, char negativeDirection, String &resultString) {
@@ -785,10 +686,11 @@ void loop1(void * parameter) {
       wifiSignalQuality(55, 10);
       batteryVoltage(2, 20);
       batteryPercent(55, 20);
-      displayThrottle(83, 11);
-      displayHorn(86, 22);
-      displayHeadlight(112, 22);
-      displayNav(102, 36);
+      //      displayThrottle(83, 11);
+      displayHorn(81, 10);
+      displayHeadlight(115, 10);
+      //      displayNav(102, 36);
+      displayNav();
       displayGPSStatus(2, 30);
       displayLatLng(2, 40);
       displayCarSpeed(2, 60);
@@ -814,8 +716,7 @@ void loop() {
   onDemandFirebaseConfig();
 
   if (firebaseStatus == "ok") {
-    navigation();
-    speedControll();
+    navUpload();
     gpsPowerControll();
     Firebase.getString(firebaseData, "/ESP-CAR");
     decodeData(firebaseData.stringData());
