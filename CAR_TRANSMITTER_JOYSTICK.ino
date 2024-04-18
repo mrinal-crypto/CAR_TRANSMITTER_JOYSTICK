@@ -30,21 +30,20 @@
 CRGB leds[NUM_LEDS];
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
-unsigned long previousMillis = 0;
-const unsigned long interval = 50;
-
-volatile uint8_t sharedVarForSpeed;
-volatile uint16_t sharedVarForTime = 0;
-
 int signalQuality[] = { 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
                         99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 98, 98, 98, 97, 97, 96, 96, 95, 95, 94, 93, 93, 92,
                         91, 90, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 76, 75, 74, 73, 71, 70, 69, 67, 66, 64,
                         63, 61, 60, 58, 56, 55, 53, 51, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20,
-                        17, 15, 13, 10, 8, 6, 3, 1, 1, 1, 1, 1, 1, 1, 1 };
+                        17, 15, 13, 10, 8, 6, 3, 1, 1, 1, 1, 1, 1, 1, 1
+                      };
+
+static const unsigned char image_arrow_down_bits[] U8X8_PROGMEM = {0x04, 0x04, 0x04, 0x04, 0x15, 0x0e, 0x04};
+static const unsigned char image_arrow_up_bits[] U8X8_PROGMEM = {0x04, 0x0e, 0x15, 0x04, 0x04, 0x04, 0x04};
 
 const int portalOpenTime = 300000;  //server open for 5 mins
 int navX, navX2;
 int navY, navY2;
+int originX, originY;
 bool onDemand;
 String firebaseStatus = "";
 String ssid = "";
@@ -72,7 +71,7 @@ AsyncWebServer server(80);
 Preferences preferences;
 
 TaskHandle_t Task1;
-SemaphoreHandle_t variableMutex;
+
 
 void setup() {
   Serial.begin(115200);
@@ -114,11 +113,12 @@ void setup() {
   delay(1000);
   connectFirebase();
   delay(2000);
+  setOrigin(150);
+  delay(1000);
   u8g2.clearDisplay();
   drawLayout();
   delay(1000);
 
-  variableMutex = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(
     loop1,
     "Task1",
@@ -140,6 +140,57 @@ void welcomeMsg() {
   u8g2.drawStr(2, 60, "developed by M.Maity");
   u8g2.sendBuffer();
   u8g2.clearBuffer();
+}
+////////////////////////////////////////////////////////////////////////
+void setOrigin(uint8_t noOfSamples) {
+
+  Serial.println("Setup origin(x,y)");
+  clearLCD(0, 0, 128, 64);
+  u8g2.setFont(u8g2_font_t0_11_tr);
+  u8g2.drawStr(1, 12, "Setup origin(x,y)");
+  u8g2.sendBuffer();
+
+  unsigned long xSamplesTotal = 0;
+  unsigned long ySamplesTotal = 0;
+
+  for (uint8_t start = 1; start <= noOfSamples; start++) {
+    xSamplesTotal += analogRead(JOYX);
+    ySamplesTotal += analogRead(JOYY);
+    clearLCD(1, 16, 128, 11);
+
+    String count = String(start) + "/" + String(noOfSamples) + " collected";
+
+    Serial.println(count);
+    u8g2.drawStr(1, 25, count.c_str());
+    u8g2.sendBuffer();
+    delay(100);
+  }
+
+  originX = xSamplesTotal / noOfSamples;
+  originY = ySamplesTotal / noOfSamples;
+  String origin = "Origin (" + String(originX) + ", " + String(originY) + ")";
+
+  Serial.println(origin);
+  u8g2.setFont(u8g2_font_t0_11_tr);
+  u8g2.drawStr(1, 41, origin.c_str());
+  u8g2.sendBuffer();
+  delay(4000);
+
+  if (firebaseStatus == "ok") {
+    Firebase.setInt(firebaseData, "/ESP-CAR/X", originX);
+    Firebase.setInt(firebaseData, "/ESP-CAR/Y", originY);
+
+    Serial.println("uploaded the origin(x,y) value to server");
+    u8g2.drawStr(1, 55, "uploaded to server");
+    u8g2.sendBuffer();
+    delay(1000);
+  }
+  if (firebaseStatus != "ok") {
+    Serial.println("failed to upload the origin(x,y) value");
+    u8g2.drawStr(1, 55, "error to upload!");
+    u8g2.sendBuffer();
+    delay(1000);
+  }
 }
 ////////////////////////////////////////////////////////////////////////
 void clearLCD(const long x, uint8_t y, uint8_t wid, uint8_t hig) {
@@ -169,7 +220,7 @@ void connectFirebase() {
     config.database_url = firebaseUrl;
     config.api_key = firebaseToken;
 
-    Firebase.signUp(&config, &auth, "", ""); //for anonymous user
+    Firebase.signUp(&config, &auth, "", "");  //for anonymous user
 
     delay(100);
 
@@ -210,11 +261,11 @@ void connectFirebase() {
 void setupServer() {
   preferences.begin("my-app", false);
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
     request->send(SPIFFS, "/index.html", String(), false);
   });
 
-  server.on("/Submit", HTTP_POST, [](AsyncWebServerRequest *request) {
+  server.on("/Submit", HTTP_POST, [](AsyncWebServerRequest * request) {
     String firebaseUrl = request->arg("url");
     String firebaseToken = request->arg("token");
 
@@ -224,7 +275,7 @@ void setupServer() {
     config.database_url = firebaseUrl;
     config.api_key = firebaseToken;
 
-    Firebase.signUp(&config, &auth, "", ""); //for anonymous user
+    Firebase.signUp(&config, &auth, "", "");  //for anonymous user
 
     delay(100);
 
@@ -254,7 +305,6 @@ void setupServer() {
       Serial.println("Firebase settings saved");
       Serial.println("Error! Check your credentials.");
       Serial.println("Restarting your device...");
-
 
       clearLCD(0, 40, 128, 10);
       u8g2.setFont(u8g2_font_t0_11_tr);
@@ -298,14 +348,14 @@ void setupServer() {
 //////////////////////////////////////////////////////////////////////////////
 void ipCheck(uint8_t ipx, uint8_t ipy) {
 
-  String rawIP = WiFi.localIP().toString();  //toString () used for convert char to string
+  String rawIP = WiFi.localIP().toString();
 
   String IPAdd = "IP " + rawIP;
 
   clearLCD(ipx, ipy - 10, 98, 10);
 
   u8g2.setFont(u8g2_font_t0_11_tr);
-  u8g2.drawStr(ipx, ipy, IPAdd.c_str());  //c_str() function used for convert string to const char *
+  u8g2.drawStr(ipx, ipy, IPAdd.c_str());
   u8g2.sendBuffer();
 }
 //////////////////////////////////////////////////////////////////////////////
@@ -324,7 +374,6 @@ void connectWiFi() {
   delay(50);
   bool success = false;
   while (!success) {
-    //    Serial.println("AP - espSmartHome  Setup IP - 192.168.4.1");
     wm.setConfigPortalTimeout(60);
     success = wm.autoConnect("TRANSMITTER");
     if (!success) {
@@ -405,7 +454,8 @@ void onDemandFirebaseConfig() {
 }
 
 void decodeData(String data) {
-  Serial.println(data);  //For Example=> {"value1":"\"on\"","value2":"\"on\"","value3":"\"off\"","value4":"\"off\""}
+  //  Serial.println(data);  //{"BATTERY":12.2,"BHC":12.24,"BLC":11.2,"GPS":1,"HL":1,"HORN":0,"LAT":21.86387,"LNG":88.38109,"NAVX":1370,"NAVY":1353,"SAT":0,"SPEED":0,"X":1280,"Y":1211}
+
   /*
       goto website https://arduinojson.org/v6/assistant/#/step1
       select board
@@ -413,7 +463,7 @@ void decodeData(String data) {
       and paste your JSON data
       it automatically generate your code
   */
-  StaticJsonDocument<385> doc;
+  StaticJsonDocument<512> doc;
   DeserializationError error = deserializeJson(doc, data);
 
   if (error) {
@@ -438,6 +488,10 @@ void decodeData(String data) {
 
   satNo = doc["SAT"];
   carSpeed = doc["SPEED"];
+
+  clearLCD(98, 3, 11, 7);
+  u8g2.drawXBM(104, 3, 5, 7, image_arrow_down_bits);
+//  u8g2.sendBuffer();
 }
 ////////////////////////////////////////////////////////////////
 boolean isFirebaseConnected() {
@@ -451,7 +505,6 @@ boolean isFirebaseConnected() {
 //////////////////////////////////////////////////////////////
 void showLedStatus(uint8_t r, uint8_t g, uint8_t b) {
   leds[STATUS_LED] = CRGB(r, g, b);
-  ;
   FastLED.show();
 }
 ///////////////////////////////////////////////////////////////
@@ -508,12 +561,13 @@ void gpsPowerControll() {
 /////////////////////////////////////////////////////////////
 void navUpload() {
 
-  //  navX = analogRead(JOYX);
-  //  navY = analogRead(JOYY);
-
   if (abs(navX2 - navX) > 10 || abs(navY2 - navY) > 10) {
     Firebase.setInt(firebaseData, "/ESP-CAR/NAVX", navX);
     Firebase.setInt(firebaseData, "/ESP-CAR/NAVY", navY);
+    
+    clearLCD(98, 3, 11, 7);
+    u8g2.drawXBM(98, 3, 5, 7, image_arrow_up_bits);
+//    u8g2.sendBuffer();
   }
 
   if (digitalRead(HORN) == LOW) {
@@ -527,7 +581,7 @@ void drawLayout() {
   u8g2.drawFrame(0, 0, 80, 64);
   u8g2.drawFrame(80, 0, 48, 64);
   u8g2.drawLine(81, 11, 126, 11);
-  //  u8g2.drawEllipse(104, 37, 23, 25);
+//  u8g2.drawEllipse(104, 37, 23, 25);
   u8g2.drawLine(103, 12, 103, 62);
   u8g2.drawLine(81, 37, 126, 37);
   u8g2.sendBuffer();
@@ -540,14 +594,14 @@ void printSSID(uint8_t ssidx, uint8_t ssidy) {
     clearLCD(ssidx, ssidy - 9, 54, 9);
 
     u8g2.setFont(u8g2_font_t0_11_tr);
-    u8g2.drawStr(ssidx, ssidy, wifiName.c_str());  //c_str() function used for convert string to const char *
+    u8g2.drawStr(ssidx, ssidy, wifiName.c_str());
     u8g2.sendBuffer();
   } else {
     String wifiName = ssid;
     clearLCD(ssidx, ssidy - 9, 54, 9);
 
     u8g2.setFont(u8g2_font_t0_11_tr);
-    u8g2.drawStr(ssidx, ssidy, wifiName.c_str());  //c_str() function used for convert string to const char *
+    u8g2.drawStr(ssidx, ssidy, wifiName.c_str());
     u8g2.sendBuffer();
   }
 }
@@ -557,7 +611,7 @@ void batteryVoltage(uint8_t bvx, uint8_t bvy) {
   String inUnit = "B=" + level + "V";
   clearLCD(bvx, bvy - 9, 54, 9);
   u8g2.setFont(u8g2_font_t0_11_tr);
-  u8g2.drawStr(bvx, bvy, inUnit.c_str());  //c_str() function used for convert string to const char *
+  u8g2.drawStr(bvx, bvy, inUnit.c_str());
   u8g2.sendBuffer();
 }
 ///////////////////////////////////////////////////////////////
@@ -598,16 +652,15 @@ void displayNav() {
   navX = analogRead(JOYX);
   navY = analogRead(JOYY);
 
-  Serial.print(" X: ");
-  Serial.print(navX);
-  Serial.print(" Y: ");
-  Serial.println(navY);
+  //  Serial.print(" X: ");
+  //  Serial.print(navX);
+  //  Serial.print(" Y: ");
+  //  Serial.println(navY);
 
-  int x = 1412, y = 1385;
-  int xR = map(navX, x + 1, 4095, 100, 121);
-  int xL = map(navX, x - 2, 0, 100, 80);
-  int yT = map(navY, y + 1, 0, 41, 18);
-  int yB = map(navY, y - 2, 4095, 41, 64);
+  int xR = map(navX, originX + 1, 4095, 100, 121);
+  int xL = map(navX, originX - 2, 0, 100, 80);
+  int yT = map(navY, originY + 1, 0, 41, 18);
+  int yB = map(navY, originY - 2, 4095, 41, 64);
 
 
   clearLCD(104, 12, 23, 25);
@@ -617,16 +670,16 @@ void displayNav() {
 
   u8g2.setFont(u8g2_font_t0_11_tr);
 
-  if (navX > x && navY < y) {  //1st co.
+  if (navX > originX && navY < originY) {  //1st co.
     u8g2.drawStr(xR, yT, "+");
   }
-  if (navX < x && navY < y) {  //2nd co.
+  if (navX < originX && navY < originY) {  //2nd co.
     u8g2.drawStr(xL, yT, "+");
   }
-  if (navX < x && navY > y) {  //3rd co.
+  if (navX < originX && navY > originY) {  //3rd co.
     u8g2.drawStr(xL, yB, "+");
   }
-  if (navX > x && navY > y) {  //4th co.
+  if (navX > originX && navY > originY) {  //4th co.
     u8g2.drawStr(xR, yB, "+");
   }
   u8g2.sendBuffer();
@@ -700,10 +753,8 @@ void loop1(void *parameter) {
       wifiSignalQuality(55, 10);
       batteryVoltage(2, 20);
       batteryPercent(55, 20);
-      //      displayThrottle(83, 11);
       displayHorn(81, 10);
       displayHeadlight(115, 10);
-      //      displayNav(102, 36);
       displayNav();
       displayGPSStatus(2, 30);
       displayLatLng(2, 40);
