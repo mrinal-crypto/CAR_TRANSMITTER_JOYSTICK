@@ -45,8 +45,10 @@ int navX, navX2;
 int navY, navY2;
 int originX, originY;
 bool onDemand;
+bool oriUploadExecuted = false;
 String firebaseStatus = "";
 String ssid = "";
+String linkStatus = "";
 String concatenatedDMSLat = "";
 String concatenatedDMSLng = "";
 float batteryLevel = 11.99;
@@ -114,6 +116,7 @@ void setup() {
   connectFirebase();
   delay(2000);
   setOrigin(150);
+  uploadOriginValues();
   delay(1000);
   u8g2.clearDisplay();
   drawLayout();
@@ -175,21 +178,28 @@ void setOrigin(uint8_t noOfSamples) {
   u8g2.drawStr(1, 41, origin.c_str());
   u8g2.sendBuffer();
   delay(4000);
+}
+////////////////////////////////////////////////////////////////////////
+void uploadOriginValues() {
 
-  if (firebaseStatus == "ok") {
-    Firebase.setInt(firebaseData, "/ESP-CAR/X", originX);
-    Firebase.setInt(firebaseData, "/ESP-CAR/Y", originY);
+  if (!oriUploadExecuted) {
 
-    Serial.println("uploaded the origin(x,y) value to server");
-    u8g2.drawStr(1, 55, "uploaded to server");
-    u8g2.sendBuffer();
-    delay(1000);
-  }
-  if (firebaseStatus != "ok") {
-    Serial.println("failed to upload the origin(x,y) value");
-    u8g2.drawStr(1, 55, "error to upload!");
-    u8g2.sendBuffer();
-    delay(1000);
+    if (firebaseStatus == "ok") {
+      Firebase.setInt(firebaseData, "/ESP-CAR/X", originX);
+      Firebase.setInt(firebaseData, "/ESP-CAR/Y", originY);
+
+      Serial.println("uploaded the origin(x,y) value to server");
+      u8g2.drawStr(1, 55, "uploaded to server");
+      u8g2.sendBuffer();
+      delay(1000);
+    }
+    if (firebaseStatus != "ok") {
+      Serial.println("failed to upload the origin(x,y) value");
+      u8g2.drawStr(1, 55, "error to upload!");
+      u8g2.sendBuffer();
+      delay(1000);
+    }
+    oriUploadExecuted = true;
   }
 }
 ////////////////////////////////////////////////////////////////////////
@@ -454,7 +464,7 @@ void onDemandFirebaseConfig() {
 }
 
 void decodeData(String data) {
-  //  Serial.println(data);  //{"BATTERY":12.2,"BHC":12.24,"BLC":11.2,"GPS":1,"HL":1,"HORN":0,"LAT":21.86387,"LNG":88.38109,"NAVX":1370,"NAVY":1353,"SAT":0,"SPEED":0,"X":1280,"Y":1211}
+  Serial.println(data);  //{"BATTERY":12.2,"BHC":12.24,"BLC":11.2,"GPS":1,"HL":1,"HORN":0,"LAT":21.86387,"LNG":88.38109,"NAVX":1370,"NAVY":1353,"SAT":0,"SPEED":0,"X":1280,"Y":1211}
 
   /*
       goto website https://arduinojson.org/v6/assistant/#/step1
@@ -463,11 +473,11 @@ void decodeData(String data) {
       and paste your JSON data
       it automatically generate your code
   */
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<385> doc;
   DeserializationError error = deserializeJson(doc, data);
 
   if (error) {
-    //    Serial.print(F("deserializeJson() failed: "));
+    Serial.print(F("deserializeJson() failed: "));
     Serial.println(error.f_str());
     return;
   }
@@ -476,22 +486,17 @@ void decodeData(String data) {
   batteryLevel = doc["BATTERY"];
   bhc = doc["BHC"];
   blc = doc["BLC"];
-
   gpsValue = doc["GPS"];
   headlightValue = doc["HL"];
   hornValue = doc["HORN"];
   latti = doc["LAT"];
-
   longi = doc["LNG"];
   navX2 = doc["NAVX"];
   navY2 = doc["NAVY"];
-
   satNo = doc["SAT"];
   carSpeed = doc["SPEED"];
 
-  clearLCD(98, 3, 11, 7);
-  u8g2.drawXBM(104, 3, 5, 7, image_arrow_down_bits);
-//  u8g2.sendBuffer();
+  linkStatus = "down";
 }
 ////////////////////////////////////////////////////////////////
 boolean isFirebaseConnected() {
@@ -564,10 +569,7 @@ void navUpload() {
   if (abs(navX2 - navX) > 10 || abs(navY2 - navY) > 10) {
     Firebase.setInt(firebaseData, "/ESP-CAR/NAVX", navX);
     Firebase.setInt(firebaseData, "/ESP-CAR/NAVY", navY);
-    
-    clearLCD(98, 3, 11, 7);
-    u8g2.drawXBM(98, 3, 5, 7, image_arrow_up_bits);
-//    u8g2.sendBuffer();
+    linkStatus = "up";
   }
 
   if (digitalRead(HORN) == LOW) {
@@ -581,7 +583,7 @@ void drawLayout() {
   u8g2.drawFrame(0, 0, 80, 64);
   u8g2.drawFrame(80, 0, 48, 64);
   u8g2.drawLine(81, 11, 126, 11);
-//  u8g2.drawEllipse(104, 37, 23, 25);
+  //  u8g2.drawEllipse(104, 37, 23, 25);
   u8g2.drawLine(103, 12, 103, 62);
   u8g2.drawLine(81, 37, 126, 37);
   u8g2.sendBuffer();
@@ -616,14 +618,22 @@ void batteryVoltage(uint8_t bvx, uint8_t bvy) {
 }
 ///////////////////////////////////////////////////////////////
 void batteryPercent(uint8_t bpx, uint8_t bpy) {
-  float batteryFactor = 99 / (bhc - blc);
-  int bat = (batteryLevel - blc) * batteryFactor;
-  String percentStr = String(bat);
-  String percent = percentStr + "%";
-  clearLCD(bpx, bpy - 9, 20, 9);
-  u8g2.setFont(u8g2_font_t0_11_tr);
-  u8g2.drawStr(bpx, bpy, percent.c_str());
-  u8g2.sendBuffer();
+  if (batteryLevel >= blc) {
+    float batteryFactor = 99 / (bhc - blc);
+    int bat = (batteryLevel - blc) * batteryFactor;
+    String percentStr = String(bat);
+    String percent = percentStr + "%";
+    clearLCD(bpx, bpy - 9, 20, 9);
+    u8g2.setFont(u8g2_font_t0_11_tr);
+    u8g2.drawStr(bpx, bpy, percent.c_str());
+    u8g2.sendBuffer();
+  } else {
+    String percent = "00%";
+    clearLCD(bpx, bpy - 9, 20, 9);
+    u8g2.setFont(u8g2_font_t0_11_tr);
+    u8g2.drawStr(bpx, bpy, percent.c_str());
+    u8g2.sendBuffer();
+  }
 }
 ///////////////////////////////////////////////////////////////
 void displayHorn(uint8_t dhx, uint8_t dhy) {
@@ -652,15 +662,15 @@ void displayNav() {
   navX = analogRead(JOYX);
   navY = analogRead(JOYY);
 
-  //  Serial.print(" X: ");
-  //  Serial.print(navX);
-  //  Serial.print(" Y: ");
-  //  Serial.println(navY);
+  Serial.print(" X: ");
+  Serial.print(navX);
+  Serial.print(" Y: ");
+  Serial.println(navY);
 
-  int xR = map(navX, originX + 1, 4095, 100, 121);
-  int xL = map(navX, originX - 2, 0, 100, 80);
-  int yT = map(navY, originY + 1, 0, 41, 18);
-  int yB = map(navY, originY - 2, 4095, 41, 64);
+  int xR = map(navX, originX, 4095, 100, 121);
+  int xL = map(navX, originX, 0, 100, 80);
+  int yT = map(navY, originY, 0, 41, 18);
+  int yB = map(navY, originY, 4095, 41, 64);
 
 
   clearLCD(104, 12, 23, 25);
@@ -741,7 +751,19 @@ void displayCarSpeed(uint8_t dcsx, uint8_t dcsy) {
   u8g2.drawStr(dcsx, dcsy, speedStr2.c_str());
   u8g2.sendBuffer();
 }
-
+///////////////////////////////////////////////////////////////
+void upDownlink(String linkStatus) {
+  if (linkStatus == "up") {
+    clearLCD(98, 3, 11, 7);
+    u8g2.drawXBM(98, 3, 5, 7, image_arrow_up_bits);
+    //    showLedStatus(0, 255, 255);
+  }
+  if (linkStatus == "down") {
+    clearLCD(98, 3, 11, 7);
+    u8g2.drawXBM(104, 3, 5, 7, image_arrow_down_bits);
+    //    showLedStatus(255, 255, 0);
+  }
+}
 ///////////////////////////////////////////////////////////////
 void loop1(void *parameter) {
 
@@ -749,6 +771,7 @@ void loop1(void *parameter) {
     drawLayout();
     if (WiFi.status() == WL_CONNECTED && firebaseStatus == "ok") {
       showLedStatus(0, 255, 0);
+      upDownlink(linkStatus);
       printSSID(2, 10);
       wifiSignalQuality(55, 10);
       batteryVoltage(2, 20);
